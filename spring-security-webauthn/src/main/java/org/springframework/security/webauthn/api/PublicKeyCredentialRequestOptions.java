@@ -18,6 +18,7 @@ package org.springframework.security.webauthn.api;
 
 import org.springframework.util.Assert;
 
+import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,7 +31,7 @@ import java.util.function.Consumer;
  * @since 6.4
  * @author Rob Winch
  */
-public class PublicKeyCredentialRequestOptions {
+public class PublicKeyCredentialRequestOptions implements Serializable {
 	private final Bytes challenge;
 
 	// FIXME: a null timeout is being rendered. Should we forbid null or should we not render null.

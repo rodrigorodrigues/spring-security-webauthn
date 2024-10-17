@@ -19,12 +19,21 @@ package org.springframework.security.config.annotation.web.configurers;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.ResolvableType;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.oauth2.client.OAuth2LoginConfigurer;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
+import org.springframework.security.web.RedirectStrategy;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.ui.DefaultLoginPageGeneratingFilter;
@@ -32,7 +41,6 @@ import org.springframework.security.web.authentication.ui.DefaultResourcesFilter
 import org.springframework.security.web.authentication.ui.DefaultWebauthnLoginPageGeneratingFilter;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.server.ui.LoginPageGeneratingWebFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.webauthn.authentication.PublicKeyCredentialRequestOptionsFilter;
@@ -43,6 +51,7 @@ import org.springframework.security.web.webauthn.registration.WebAuthnRegistrati
 import org.springframework.security.webauthn.api.PublicKeyCredentialRpEntity;
 import org.springframework.security.webauthn.authentication.WebAuthnAuthenticationProvider;
 import org.springframework.security.webauthn.management.*;
+import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 
 import java.lang.reflect.Constructor;
@@ -59,6 +68,7 @@ import static org.springframework.security.web.util.matcher.AntPathRequestMatche
  */
 public class WebauthnConfigurer<B extends HttpSecurityBuilder<B>>
 		extends AbstractHttpConfigurer<WebauthnConfigurer<B>, B> {
+	private final AuthorizationEndpointConfig authorizationEndpointConfig = new AuthorizationEndpointConfig();
 
 	private String rpId;
 
@@ -112,6 +122,8 @@ public class WebauthnConfigurer<B extends HttpSecurityBuilder<B>>
 			DefaultWebauthnLoginPageGeneratingFilter webauthnLogin = new DefaultWebauthnLoginPageGeneratingFilter(usernamePasswordFilter);
 			webauthnLogin.setFormLoginEnabled(true);
 			webauthnLogin.setPasskeysEnabled(true);
+			webauthnLogin.setOauth2LoginEnabled(true);
+			webauthnLogin.setOauth2AuthenticationUrlToClientName(this.getLoginLinks());
 			webauthnLogin.setResolveHeaders((request) -> {
 				CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
 				return Map.of( csrfToken.getHeaderName(), csrfToken.getToken());
@@ -129,6 +141,30 @@ public class WebauthnConfigurer<B extends HttpSecurityBuilder<B>>
 			webauthnLogin.setResolveHiddenInputs(this::hiddenInputs);
 			http.addFilterBefore(webauthnLogin, DefaultLoginPageGeneratingFilter.class);
 		}
+	}
+
+	private Map<String, String> getLoginLinks() {
+		Iterable<ClientRegistration> clientRegistrations = null;
+		ClientRegistrationRepository clientRegistrationRepository = OAuth2ClientConfigurerUtils
+				.getClientRegistrationRepository(this.getBuilder());
+		ResolvableType type = ResolvableType.forInstance(clientRegistrationRepository).as(Iterable.class);
+		if (type != ResolvableType.NONE && ClientRegistration.class.isAssignableFrom(type.resolveGenerics()[0])) {
+			clientRegistrations = (Iterable<ClientRegistration>) clientRegistrationRepository;
+		}
+		if (clientRegistrations == null) {
+			return Collections.emptyMap();
+		}
+		String authorizationRequestBaseUri = (this.authorizationEndpointConfig.authorizationRequestBaseUri != null)
+				? this.authorizationEndpointConfig.authorizationRequestBaseUri
+				: OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI;
+		Map<String, String> loginUrlToClientName = new HashMap<>();
+		clientRegistrations.forEach((registration) -> {
+			if (AuthorizationGrantType.AUTHORIZATION_CODE.equals(registration.getAuthorizationGrantType())) {
+				String authorizationRequestUri = authorizationRequestBaseUri + "/" + registration.getRegistrationId();
+				loginUrlToClientName.put(authorizationRequestUri, registration.getClientName());
+			}
+		});
+		return loginUrlToClientName;
 	}
 
 	public static <B extends HttpSecurityBuilder<B>> WebauthnConfigurer<B> webauthn() {
@@ -192,5 +228,47 @@ public class WebauthnConfigurer<B extends HttpSecurityBuilder<B>>
 				.build(),
 				this.allowedOrigins);
 		return result;
+	}
+
+	private final class AuthorizationEndpointConfig {
+		private String authorizationRequestBaseUri;
+		private OAuth2AuthorizationRequestResolver authorizationRequestResolver;
+		private AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository;
+		private RedirectStrategy authorizationRedirectStrategy;
+
+		private AuthorizationEndpointConfig() {
+		}
+
+		public WebauthnConfigurer<B>.AuthorizationEndpointConfig baseUri(String authorizationRequestBaseUri) {
+			Assert.hasText(authorizationRequestBaseUri, "authorizationRequestBaseUri cannot be empty");
+			this.authorizationRequestBaseUri = authorizationRequestBaseUri;
+			return this;
+		}
+
+		public WebauthnConfigurer<B>.AuthorizationEndpointConfig authorizationRequestResolver(OAuth2AuthorizationRequestResolver authorizationRequestResolver) {
+			Assert.notNull(authorizationRequestResolver, "authorizationRequestResolver cannot be null");
+			this.authorizationRequestResolver = authorizationRequestResolver;
+			return this;
+		}
+
+		public WebauthnConfigurer<B>.AuthorizationEndpointConfig authorizationRequestRepository(AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository) {
+			Assert.notNull(authorizationRequestRepository, "authorizationRequestRepository cannot be null");
+			this.authorizationRequestRepository = authorizationRequestRepository;
+			return this;
+		}
+
+		public WebauthnConfigurer<B>.AuthorizationEndpointConfig authorizationRedirectStrategy(RedirectStrategy authorizationRedirectStrategy) {
+			this.authorizationRedirectStrategy = authorizationRedirectStrategy;
+			return this;
+		}
+
+		/** @deprecated */
+		@Deprecated(
+				since = "6.1",
+				forRemoval = true
+		)
+		public WebauthnConfigurer<B> and() {
+			return WebauthnConfigurer.this;
+		}
 	}
 }

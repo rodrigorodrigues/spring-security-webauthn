@@ -16,13 +16,15 @@
 
 package org.springframework.security.webauthn.api;
 
+import java.io.Serializable;
+
 /**
  * <a href="https://www.w3.org/TR/webauthn-3/#enumdef-userverificationrequirement">UserVerificationRequirement</a> is
  * used by the Relying Party to indicate if user verification is needed.
  * @since 6.4
  * @author Rob Winch
  */
-public final class UserVerificationRequirement {
+public final class UserVerificationRequirement implements Serializable {
 
 	/**
 	 * The <a href="https://www.w3.org/TR/webauthn-3/#dom-userverificationrequirement-discouraged">discouraged</a> value

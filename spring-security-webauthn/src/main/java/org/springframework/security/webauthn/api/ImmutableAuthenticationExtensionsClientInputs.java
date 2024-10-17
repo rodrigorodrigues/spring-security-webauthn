@@ -16,6 +16,7 @@
 
 package org.springframework.security.webauthn.api;
 
+import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
 
@@ -25,7 +26,7 @@ import java.util.List;
  * @since 6.4
  * @author Rob Winch
  */
-public class ImmutableAuthenticationExtensionsClientInputs implements AuthenticationExtensionsClientInputs {
+public class ImmutableAuthenticationExtensionsClientInputs implements AuthenticationExtensionsClientInputs, Serializable {
 
 	private final List<AuthenticationExtensionsClientInput> inputs;
 

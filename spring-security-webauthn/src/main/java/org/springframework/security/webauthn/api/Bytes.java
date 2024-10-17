@@ -19,6 +19,7 @@ package org.springframework.security.webauthn.api;
 
 import org.springframework.util.Assert;
 
+import java.io.Serializable;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
@@ -28,7 +29,7 @@ import java.util.Base64;
  * @since 6.4
  * @author Rob Winch
  */
-public final class Bytes {
+public final class Bytes implements Serializable {
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 
